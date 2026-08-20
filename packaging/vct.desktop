@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Video Color Translator
+GenericName=Video Colour Interpreter
+Comment=Interpret, tone map and export video colour
+Exec=vct %f
+Terminal=false
+Categories=AudioVideo;Video;AudioVideoEditing;Graphics;
+Keywords=video;colour;color;HDR;LOG;grading;tonemap;LUT;
+MimeType=video/mp4;video/quicktime;video/x-matroska;video/mp2t;video/x-msvideo;video/webm;
+StartupNotify=true
+StartupWMClass=vct
