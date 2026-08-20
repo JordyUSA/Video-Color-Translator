@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "video-color-translator"
+version = "0.1.0"
+description = "A Linux desktop video colour interpretation and tone-mapping tool"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = [
+    "PySide6>=6.5",
+    "numpy>=1.22",
+]
+
+[project.optional-dependencies]
+# Ships a static ffmpeg build; only needed if ffmpeg is not installed system-wide.
+bundled-ffmpeg = ["imageio-ffmpeg>=0.4.9"]
+dev = ["pytest>=7.0", "imageio-ffmpeg>=0.4.9"]
+
+[project.scripts]
+vct = "vct.app:main"
+
+[tool.setuptools.packages.find]
+include = ["vct*"]
+
+[tool.setuptools.package-data]
+vct = ["resources/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["error::DeprecationWarning:vct.*"]
