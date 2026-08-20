@@ -5,8 +5,8 @@ import os
 import numpy as np
 import pytest
 
-from vct.core.lut import (DEFAULT_LUT_SIZE, apply_lut, build_lut, identity_lut,
-                          read_cube, write_cube)
+from vct.core.lut import (DEFAULT_LUT_SIZE, apply_lut, apply_lut_to_u8, build_lut,
+                          identity_lut, read_cube, write_cube)
 from vct.core.pipeline import (ColorPipeline, OutputParams, PipelineParams,
                                SourceParams)
 
@@ -127,3 +127,36 @@ def test_lut_build_is_fast_enough_to_drag_a_slider():
         build_lut(p, DEFAULT_LUT_SIZE)
     elapsed = (time.perf_counter() - start) / 5.0
     assert elapsed < 0.060, f"LUT rebuild took {elapsed * 1000:.1f} ms"
+
+
+def test_nearest_interpolation_is_close_to_trilinear():
+    """The draft path must look like the final one, not merely be fast."""
+    lut = build_lut(params("hdr10", "rec709"), 33)
+    img = np.random.default_rng(11).random((64, 64, 3)).astype(np.float32)
+    fine = apply_lut(img, lut, "trilinear")
+    draft = apply_lut(img, lut, "nearest")
+    assert np.abs(fine - draft).mean() < 6.0 / 255.0
+
+
+def test_nearest_is_faster_than_trilinear():
+    import time
+    lut = build_lut(params("hdr10", "rec709"), 33)
+    img = np.random.default_rng(11).random((360, 640, 3)).astype(np.float32)
+
+    def timed(mode):
+        apply_lut(img, lut, mode)
+        start = time.perf_counter()
+        apply_lut(img, lut, mode)
+        return time.perf_counter() - start
+
+    assert timed("nearest") < timed("trilinear")
+
+
+def test_apply_lut_to_u8_matches_the_float_path():
+    lut = build_lut(params("hdr10", "rec709"), 33)
+    frame = (np.random.default_rng(2).random((32, 32, 3)) * 65535).astype(np.uint16)
+    fused = apply_lut_to_u8(frame, lut)
+    stepwise = apply_lut(frame.astype(np.float32) / 65535.0, lut)
+    expected = (np.clip(stepwise, 0, 1) * 255.0 + 0.5).astype(np.uint8)
+    assert fused.dtype == np.uint8
+    assert np.abs(fused.astype(int) - expected.astype(int)).max() <= 1

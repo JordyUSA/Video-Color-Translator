@@ -125,33 +125,43 @@ def read_cube(path: str) -> Tuple[np.ndarray, dict]:
 # CPU application (preview fallback when there is no usable GL context)
 # --------------------------------------------------------------------------
 
-def apply_lut(image: np.ndarray, lut: np.ndarray) -> np.ndarray:
-    """Trilinearly sample a 3D LUT over an image of shape ``(..., 3)``.
+TRILINEAR = "trilinear"
+NEAREST = "nearest"
 
-    Matches what the GPU does with a linearly-filtered 3D texture.  FFmpeg's
-    tetrahedral interpolation differs by well under a code value on a smooth
-    table this size.
+
+def apply_lut(image: np.ndarray, lut: np.ndarray,
+              interpolation: str = TRILINEAR) -> np.ndarray:
+    """Sample a 3D LUT over an image of shape ``(..., 3)``.
+
+    ``trilinear`` matches what the GPU does with a linearly-filtered 3D texture;
+    FFmpeg's tetrahedral interpolation differs by well under a code value on a
+    table this smooth.  ``nearest`` skips interpolation entirely and is several
+    times faster - the preview uses it for the draft frame drawn while a slider
+    is still moving, then refines once the slider settles.
     """
     image = np.asarray(image, dtype=np.float32)
     lut = np.asarray(lut, dtype=np.float32)
     size = lut.shape[0]
     shape = image.shape
-
-    pos = np.clip(image.reshape(-1, 3), 0.0, 1.0) * (size - 1)
-    i0 = np.floor(pos).astype(np.int32)
-    np.clip(i0, 0, size - 2, out=i0)
-    frac = (pos - i0).astype(np.float32)
-
-    r0, g0, b0 = i0[:, 0], i0[:, 1], i0[:, 2]
-    fr = frac[:, 0:1]
-    fg = frac[:, 1:2]
-    fb = frac[:, 2:3]
-
     flat = lut.reshape(-1, 3)
 
+    pos = np.clip(image.reshape(-1, 3), 0.0, 1.0) * (size - 1)
+
+    if interpolation == NEAREST:
+        idx = (pos + 0.5).astype(np.int32)
+        np.clip(idx, 0, size - 1, out=idx)
+        lin = (idx[:, 2] * size + idx[:, 1]) * size + idx[:, 0]
+        return flat[lin].reshape(shape)
+
+    i0 = pos.astype(np.int32)
+    np.clip(i0, 0, size - 2, out=i0)
+    frac = pos - i0
+
+    r0, g0, b0 = i0[:, 0], i0[:, 1], i0[:, 2]
+    fr, fg, fb = frac[:, 0:1], frac[:, 1:2], frac[:, 2:3]
+
     def corner(dr: int, dg: int, db: int) -> np.ndarray:
-        idx = ((b0 + db) * size + (g0 + dg)) * size + (r0 + dr)
-        return flat[idx]
+        return flat[((b0 + db) * size + (g0 + dg)) * size + (r0 + dr)]
 
     c00 = corner(0, 0, 0) * (1 - fr) + corner(1, 0, 0) * fr
     c01 = corner(0, 0, 1) * (1 - fr) + corner(1, 0, 1) * fr
@@ -161,3 +171,19 @@ def apply_lut(image: np.ndarray, lut: np.ndarray) -> np.ndarray:
     c0 = c00 * (1 - fg) + c10 * fg
     c1 = c01 * (1 - fg) + c11 * fg
     return (c0 * (1 - fb) + c1 * fb).reshape(shape)
+
+
+def apply_lut_to_u8(frame: np.ndarray, lut: np.ndarray,
+                    interpolation: str = TRILINEAR) -> np.ndarray:
+    """Decoded 16-bit frame straight to 8-bit RGB for display.
+
+    Fusing the normalise/sample/quantise steps avoids two full-size float
+    temporaries per frame, which is most of the cost on the CPU preview path.
+    """
+    frame = np.asarray(frame)
+    if frame.dtype == np.uint16:
+        image = frame.astype(np.float32) * np.float32(1.0 / 65535.0)
+    else:
+        image = np.asarray(frame, dtype=np.float32)
+    out = apply_lut(image, lut, interpolation)
+    return (np.clip(out, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
